@@ -184,6 +184,42 @@ const CONFIG = {
     TICK_RATE: 60
 };
 
+/* ---------------------------------------------------
+   音效系统（支持并发播放）
+--------------------------------------------------- */
+
+const Sound = {
+    files: {
+        water: new Audio("water.mp3"),
+        feed: new Audio("feed.mp3"),
+        eat: new Audio("eat.mp3"),
+        clean: new Audio("clean.mp3"),
+        expand: new Audio("expand.mp3"),
+	addFish: new Audio("addfish.mp3"),
+	hungry: new Audio("help.mp3")
+    },
+
+    play(name, volume = 1) {
+        const original = this.files[name];
+        if (!original) return;
+
+        // 克隆一个声音出来（避免播放被打断）
+        const sound = original.cloneNode();
+        sound.volume = volume;
+        sound.play().catch(err => {});
+    },
+
+    loop(name, volume = 0.3) {
+        const audio = this.files[name];
+        if (!audio) return;
+
+        audio.loop = true;
+        audio.volume = volume;
+        audio.play().catch(err => {});
+    }
+};
+
+
 const PERSONALITIES = [
     { type: '活泼', speedMod: 1.5, hungerMod: 1.3, color: '#FF6B6B' },
     { type: '呆萌', speedMod: 0.6, hungerMod: 0.8, color: '#4ECDC4' },
@@ -449,6 +485,7 @@ class Fish extends Entity {
 
         this.state = "WANDER";
         this.changeDirTimer = 0;
+	this.hungryAlertCooldown = 0;
     }
 
     update(dt, foods, clean) {
@@ -462,6 +499,27 @@ class Fish extends Entity {
 
         this.hunger -= 0.015 * this.traits.hungerMod;
         if (this.hunger < 0) this.hunger = 0;
+
+	/* ---------- 饥饿提示 ---------- */
+	if (this.hunger < 10) {
+    		if (this.hungryAlertCooldown <= 0) {
+
+        		// 显示 “xx 很饿”
+        		game.createParticle(this.x, this.y - 20, `${this.name} 很饿！`, "red");
+
+        		// 播放饥饿音效
+        		Sound.play("hungry", 0.8);
+
+        		// 设定 5 秒冷却（约 300 帧）
+        		this.hungryAlertCooldown = 500;
+    		}
+	} 
+
+	// 计时器递减
+	if (this.hungryAlertCooldown > 0) {
+    		this.hungryAlertCooldown--;
+	}
+
 
         if (this.hunger < 30) this.mood -= 0.02;
 
@@ -537,6 +595,7 @@ class Fish extends Entity {
      * 吃食物
      */
     eat(food) {
+	Sound.play("eat", 0.8);
         this.hunger = Math.min(100, this.hunger + food.props.nutrition);
         this.mood = Math.min(100, this.mood + 10);
         this.health = Math.min(100, this.health + 5);
@@ -651,10 +710,20 @@ class Game {
 
         /* 事件 */
         window.addEventListener("resize", () => this.handleResize());
-        this.canvas.addEventListener("click", (e) => this.handleClick(e));
+        this.canvas.addEventListener("click", (e) => {
+    		// 第一次交互 → 触发背景水声
+    		if (!this.firstInteraction) {
+        		this.firstInteraction = true;
+        		Sound.loop("water", 0.8);   // 此时浏览器允许播放
+    		}
+
+   		 this.handleClick(e);
+		});
+
 
         this.loop();
         this.updateUI();
+	this.firstInteraction = false;
     }
 
     resize() {
@@ -696,7 +765,7 @@ class Game {
                     fish.y = -50;
 
                     this.fishes.push(fish);
-
+		    Sound.play("addFish", 0.8);
                     this.showToast(`✨ 新的鱼加入鱼塘啦！`);
                     this.updateUI();
                 };
@@ -742,7 +811,7 @@ class Game {
         const x = randomRange(50, this.canvas.width - 50);
         this.foods.push(new Food(x, 0, type));
         this.createParticle(x, 20, "splash", "white");
-
+	Sound.play("feed", 0.6);
         this.updateUI();
     }
 
@@ -764,6 +833,7 @@ class Game {
         this.maxCapacity += 2;
 
         this.showToast("🎉 扩建成功！容量 +2");
+	Sound.play("expand", 0.9);
         this.updateUI();
     }
 
@@ -781,6 +851,7 @@ class Game {
         this.cleanliness = Math.min(100, this.cleanliness + CONFIG.CLEAN_RECOVERY);
 
         this.showToast(`🧹 清理了 ${n} 个垃圾！`);
+	Sound.play("clean", 0.7);
         this.updateUI();
     }
 
